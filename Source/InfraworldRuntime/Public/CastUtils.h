@@ -20,6 +20,7 @@
 #include <string>
 #include <functional>
 #include <chrono>
+#include "GenUtils.h"
 
 #include "GrpcIncludesBegin.h"
 
@@ -179,7 +180,7 @@ namespace casts
     // ~~~~~ CAST FUNCTIONS (BYTE ARRAY), in protobuf byte arrays are std::strings ~~~~~
 
     template <>
-    FORCEINLINE FByteArray Proto_Cast(const std::string& String)
+    FORCEINLINE TArray<uint8> Proto_Cast(const std::string& String)
     {
         // Allocate a TArray<uint8>
         TArray<uint8> OutArray;
@@ -188,14 +189,7 @@ namespace casts
         OutArray.Insert(reinterpret_cast<const uint8*>(String.c_str()), String.size(), 0);
 
         // Finally, wrap all data into FByteArray
-        return FByteArray(OutArray);
-    }
-
-    template <>
-    FORCEINLINE std::string Proto_Cast(const FByteArray& Item)
-    {
-        const TArray<uint8>& Arr = Item.Bytes;
-        return std::string(reinterpret_cast<const char*>(Arr.GetData()), Arr.Num());
+        return OutArray;
     }
 
     // ~~~~~ CAST FUNCTIONS (UNREAL STRING and PROTOBUF STRING) ~~~~~
@@ -212,64 +206,14 @@ namespace casts
         return FString(String.c_str());
     }
 
-    /**
-     * Casts an UE4-compatible client context to the GRPC-compatible context.
-     *
-     * @note That grpc::ClientContext doesn't have a copy constructor, so grpc::ClientContext can not be returned from a
-     *       ProtoCast<?>(). Thus the method should set an instance of grpc::ClientContext that already exist.
-     * @param InContext Input UE4-compatible client context.
-     * @param OutContext Output GRPC-compatible client context.
-     */
-    FORCEINLINE void CastClientContext(const FGrpcClientContext &InContext, grpc::ClientContext &OutContext)
+    template <>
+    FORCEINLINE FGrpcStatus Proto_Cast(const grpc::Status& InStatus)
     {
-        // Cast and set metadata, checking for errors.
-        for (const TPair<FString, FString>& Pair : InContext.Metadata)
-        {
-            if (Pair.Key.IsEmpty())
-            {
-                UE_LOG(LogTemp, Error, TEXT("Metadata key is empty for mapping '%s'->'%s' and thus won't be added to the client context. Behaviour is restricted by %s"),
-                    *Pair.Key, *Pair.Value, TEXT("grpc/core/lib/surface/validate_metadata:80"));
-            }
-            else if (Pair.Key.StartsWith(":"))
-            {
-                UE_LOG(LogTemp, Error, TEXT("Metadata key statrs with ':' for mapping '%s'->'%s' and thus won't be added to the client context. Behaviour is restricted by %s"),
-                    *Pair.Key, *Pair.Value, TEXT("grpc/core/lib/surface/validate_metadata:84"));
-            }
-            else
-            {
-                OutContext.AddMetadata(casts::Proto_Cast<std::string>(Pair.Key), casts::Proto_Cast<std::string>(Pair.Value));
-            }
-
-            // TODO: Add some other validation checks if necessary.
-        }
-
-        // Set deadline (Only if it has a positive value. It is -1 by default)
-        if (InContext.DeadlineSeconds > .0f)
-        {
-            const int64 Milliseconds = static_cast<int64>(((double)InContext.DeadlineSeconds * 1000.0));
-            OutContext.set_deadline(system_clock::now() + milliseconds(Milliseconds));
-        }
-
-        // Set boolean parameters
-        OutContext.set_idempotent(InContext.bIdempotent);
-        OutContext.set_cacheable(InContext.bCacheable);
-        OutContext.set_wait_for_ready(InContext.bWaitForReady);
-
-        // Set authority
-        OutContext.set_authority(casts::Proto_Cast<std::string>(InContext.Authority));
-
-        // Set Compression Algorithm
-        OutContext.set_compression_algorithm(Proto_EnumCast<grpc_compression_algorithm>(InContext.GrpcCompressionAlgorithm));
-
-        // Set Initial Metadata Corked
-        OutContext.set_initial_metadata_corked(InContext.bInitialMetadataCorked);
-    }
-
-    FORCEINLINE void CastStatus(const grpc::Status& InStatus, FGrpcStatus& OutStatus)
-    {
+        FGrpcStatus OutStatus;
         OutStatus.ErrorCode = Proto_EnumCast<EGrpcStatusCode>(InStatus.error_code());
         OutStatus.ErrorMessage = Proto_Cast<FString>(InStatus.error_message());
         OutStatus.ErrorDetails = Proto_Cast<FString>(InStatus.error_details());
+        return OutStatus;
     }
 
     // Since we have no support for unsigned types in Blueprints, we need to

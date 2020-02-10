@@ -16,11 +16,16 @@
 #include "RpcClient.h"
 
 #include "InfraworldRuntime.h"
-#include "RpcClientWorker.h"
 #include "GrpcUriValidator.h"
+#include "AsyncConduitBase.h"
 
 #include "Containers/Ticker.h"
 #include "Misc/CoreDelegates.h"
+#include "CastUtils.h"
+
+#include "GrpcIncludesBegin.h"
+#include "grpcpp/impl/grpc_library.h"
+#include "GrpcIncludesEnd.h"
 
 #include "Misc/DefaultValueHelper.h"
 #include "HAL/RunnableThread.h"
@@ -30,94 +35,30 @@
 
 bool URpcClient::Init(const FString& URI, UChannelCredentials* ChannelCredentials)
 {
-    if (bCanSendRequests)
-    {
-        UE_LOG(LogInfraworldRuntime, Error, TEXT("You're trying to initialize an RPC Client more than once"));
-        return true;
-    }
-    
+    grpc::internal::GrpcLibraryInitializer();
     FString ErrorMessage;
     if (!FGrpcUriValidator::Validate(URI, ErrorMessage))
     {
         UE_LOG(LogInfraworldRuntime, Error, TEXT("%s Unable to validate URI: %s"), *(GetClass()->GetName()), *ErrorMessage);
     }
 
-    // Do it if and only if the thread is not yet created.
-    if (Thread == nullptr)
-    {
-    	UE_LOG(LogInfraworldRuntime, Log, TEXT("RpcClient at [%p], Thread == nullptr, initializing"), this);
+    //Channel
+    Channel = grpc::CreateChannel(casts::Proto_Cast<std::string>(URI), grpc::InsecureChannelCredentials());
 
-    	
-        // Launch 'chaining' hierarchical init, which will init a superclass (a concrete implementation).
-        HierarchicalInit();
+    // Launch 'chaining' hierarchical init, which will init a superclass (a concrete implementation).
+    PostInit();
 
-    	UE_LOG(LogInfraworldRuntime, Log, TEXT("RpcClient at [%p], finished HierarchicalInit"), this);
+    UE_LOG(LogInfraworldRuntime, Log, TEXT("RpcClient at [%p], finished HierarchicalInit"), this);
 
-    	
-        // Retrieve and set an Error Message Queue
-        if (InnerWorker)
-        {
-    		UE_LOG(LogInfraworldRuntime, Log, TEXT("RpcClient at [%p], InnerWorker = %p"), this, InnerWorker.Get());
-        	
-            InnerWorker->URI = URI;
-            InnerWorker->ChannelCredentials = ChannelCredentials;
-
-            InnerWorker->ErrorMessageQueue = &ErrorMessageQueue;
-
-            const FString ThreadName(FString::Printf(TEXT("RPC Client Thread %s %d"), *(GetClass()->GetName()), FMath::RandRange(0, TNumericLimits<int32>::Max())));
-            Thread = FRunnableThread::Create(InnerWorker.Get(), *ThreadName);
-
-            bCanSendRequests = true;
-            UE_LOG(LogInfraworldRuntime, Log, TEXT("Just made a thread: %s, address %p"), *ThreadName, InnerWorker.Get());
-        }
-        else
-        {
-            UE_LOG(LogInfraworldRuntime, Fatal, TEXT("An inner worker of %s wasn't initialized"), *(GetClass()->GetName()));
-        }
-    }
-
-    if (CanSendRequests())
-    {
-        TickDelegateHandle = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this](float)
-        {
-            if (!ErrorMessageQueue.IsEmpty())
-            {
-                FRpcError ReceivedError;
-                ErrorMessageQueue.Dequeue(ReceivedError);
-                EventRpcError.Broadcast(this, ReceivedError);
-
-                // No need to call URpcClient::HierarchicalUpdate() if got any errors (Errors first)
-            }
-            else
-            {
-                HierarchicalUpdate();
-            }
-
-            return true;
-        }));
-    }
-
-    return bCanSendRequests;
+    return true;
 }
 
-URpcClient::URpcClient() : InnerWorker(nullptr), TickDelegateHandle()
+URpcClient::URpcClient()
 {
 }
 
 URpcClient::~URpcClient()
 {
-    UE_LOG(LogInfraworldRuntime, Verbose, TEXT("An instance of RPC Client has been destroyed. Still can send requests: %s"),
-           *UKismetStringLibrary::Conv_BoolToString(CanSendRequests()));
-}
-
-void URpcClient::Update()
-{
-    // Occasionally left blank
-}
-
-bool URpcClient::CanSendRequests() const
-{
-    return bCanSendRequests;
 }
 
 URpcClient* URpcClient::CreateRpcClient(TSubclassOf<URpcClient> Class, FRpcClientInstantiationParameters InstantiationParameters, UObject* Outer)
@@ -153,39 +94,25 @@ URpcClient* URpcClient::CreateRpcClientUri(TSubclassOf<URpcClient> Class, const 
     }
 }
 
-void URpcClient::BeginDestroy()
+void URpcClient::Tick(float DeltaTime)
 {
-    // Being called when GC'ed, should be called synchronously.
-    if (CanSendRequests())
-    {
-        Stop(true);
-    }
+    void* Tag;
+    bool Ok;
+    UAsyncConduitBase* Conduit;
 
-    Super::BeginDestroy();
+    gpr_timespec TimeSpec;
+    TimeSpec.clock_type = GPR_TIMESPAN;
+    TimeSpec.tv_sec = 0;
+    TimeSpec.tv_nsec = 0;
+
+    while (CompletionQueue.AsyncNext(&Tag, &Ok, TimeSpec) == CompletionQueue.GOT_EVENT)
+    {
+        Conduit = static_cast<UAsyncConduitBase*>(Tag);
+        Conduit->Process();
+    }
 }
 
-void URpcClient::Stop(bool bSynchronous)
+TStatId URpcClient::GetStatId() const
 {
-    FRunnableThread* ThreadToStop = Thread.Exchange(nullptr);
-
-    if (ThreadToStop)
-    {
-        if (!InnerWorker->IsPendingStopped())
-            InnerWorker->MarkPendingStopped();
-
-        bCanSendRequests = false;
-        UE_LOG(LogInfraworldRuntime, Verbose, TEXT("Scheduled to stop %s via setting 'bCanSendRequests = false', address %p"), *(GetClass()->GetName()), InnerWorker.Get());
-
-        // Should be synchronous in (almost) any case
-        ThreadToStop->Kill(bSynchronous);
-
-        delete ThreadToStop;
-        ThreadToStop = nullptr;
-        
-        FTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
-    }
-    else
-    {
-        UE_LOG(LogInfraworldRuntime, Error, TEXT("Can not call Stop() for an already stopped (or penfing asinchronously stopped) instance of '%s'"), *(GetClass()->GetName()));
-    }
+    return TStatId();
 }

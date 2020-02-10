@@ -22,21 +22,6 @@
 
 #include "ChannelCredentials.generated.h"
 
-// namespace grpc
-// {
-//     class ChannelCredentials;
-// }
-
-USTRUCT(BlueprintType)
-struct INFRAWORLDRUNTIME_API FRpcError
-{
-    GENERATED_USTRUCT_BODY()
-
-    UPROPERTY(BlueprintReadOnly, Category=Grpc)
-    FString ErrorMessage;
-};
-
-
 /**
  * A channel credentials object encapsulates all the state needed by a client
  * to authenticate with a server for a given channel.

@@ -95,7 +95,7 @@ public class InfraworldRuntime : ModuleRules
         List<string> headers = new List<string>();
         List<string> libs = new List<string>();
 
-        string PlatformLibRoot = "";
+        string PlatformLibRoot = Path.Combine(LIB_ROOT, Platform.ToString());
 
 
         if (Platform == UnrealTargetPlatform.Win64)
@@ -138,7 +138,24 @@ public class InfraworldRuntime : ModuleRules
         Console.WriteLine(moduleDepPaths.ToString());
 
         PublicIncludePaths.AddRange(moduleDepPaths.HeaderPaths);
-        PublicAdditionalLibraries.AddRange(moduleDepPaths.LibraryPaths);
+		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Layton"));
+
+        string windows64LibPath = Path.Combine(LIB_ROOT, "Win64");
+
+
+        PublicAdditionalLibraries.AddRange(new string[] {
+            Path.Combine(windows64LibPath, "absl_base.lib"),
+            Path.Combine(windows64LibPath, "absl_throw_delegate.lib"),
+            Path.Combine(windows64LibPath, "absl_strings.lib"),
+            Path.Combine(windows64LibPath, "absl_strings_internal.lib"),
+            Path.Combine(windows64LibPath, "address_sorting.lib"),
+            Path.Combine(windows64LibPath, "cares.lib"),
+            Path.Combine(windows64LibPath, "gpr.lib"),
+            Path.Combine(windows64LibPath, "grpc.lib"),
+            Path.Combine(windows64LibPath, "grpc++.lib"),
+            Path.Combine(windows64LibPath, "libprotobuf.lib"),
+            Path.Combine(windows64LibPath, "upb.lib"),
+        });
 
         PublicDependencyModuleNames.AddRange(new string[] {
             "Core"

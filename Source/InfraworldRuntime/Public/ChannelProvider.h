@@ -19,7 +19,6 @@
 #include <grpc++/create_channel.h>
 #include <grpc++/security/credentials.h>
 
-#include "RpcClientWorker.h"
 #include "ChannelCredentials.h"
 
 namespace channel
@@ -103,33 +102,5 @@ namespace channel
 		UE_LOG(LogTemp, Error, TEXT("Don't know how to process credentials:'%s'. Replacement is grpc::InsecureChannelCredentials()."),
 			*(Credentials->GetClass()->GetName()));
 		return grpc::InsecureChannelCredentials();
-	}
-
-	FORCEINLINE std::shared_ptr<grpc::Channel> CreateChannel(RpcClientWorker* Worker)
-	{
-		UChannelCredentials* const ChannelCredentials = Worker->ChannelCredentials;
-		UE_CLOG(!ChannelCredentials, LogTemp, Fatal, TEXT("Channel Credentials mustn't be null"));
-
-		const FString& URI = Worker->URI;
-		UE_LOG(LogTemp, Display, TEXT("The following Channel Credentials is used: \"%s\". Connecting to: \"%s\""), *(ChannelCredentials->GetName()), *URI);
-
-		std::shared_ptr<grpc::ChannelCredentials> GrpcCredentials = GetGrpcCredentials(ChannelCredentials);
-		std::shared_ptr<grpc::Channel> Channel = grpc::CreateChannel(TCHAR_TO_ANSI(*URI), GrpcCredentials);
-
-		bool bConnectionWasSuccessful = WaitForConnection(3, Channel);
-
-		if (!bConnectionWasSuccessful)
-		{
-			Worker->DispatchError(
-				NSLOCTEXT("InfraworldChannelProvider", "InfraworldChannelProviderGrpcServiceConnectionError", "Service connection failure!").ToString());
-			return std::shared_ptr<grpc::Channel>(nullptr);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Verbose, TEXT("%s"),
-				*NSLOCTEXT("InfraworldChannelProvider", "InfraworldChannelProviderGrpcServiceConnectionSuccess", "Service connection established!").ToString());
-		}
-
-		return Channel;
 	}
 }	

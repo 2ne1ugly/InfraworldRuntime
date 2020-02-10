@@ -5,7 +5,7 @@ set -e
 
 ###############################################################################
 # Should be defined as an environment variable, will be v1.3.x otherwise
-branch=${branch:-v1.23.x}
+branch=${branch:-v1.27.x}
 clean=${clean:-true}
 
 VAR_GIT_BRANCH=$branch
