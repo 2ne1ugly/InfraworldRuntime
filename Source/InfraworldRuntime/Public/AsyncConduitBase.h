@@ -22,6 +22,9 @@ class INFRAWORLDRUNTIME_API UAsyncConduitBase : public UBlueprintAsyncActionBase
 public:
     virtual void Process() PURE_VIRTUAL(URpcClient::PostInit, );
 
-    grpc::Status Status;
-    grpc::ClientContext ClientContext;
+    UPROPERTY()
+    UGrpcStatus* Status;
+
+    UPROPERTY()
+    UGrpcClientContext* ClientContext;
 };

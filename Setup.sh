@@ -26,7 +26,7 @@ UE_ROOT=${UE_ROOT:-"/var/lib/jenkins/UE_4.20.2-release"}
 if [ ! -d "$UE_ROOT" ]; then
     echo "UE_ROOT directory ${UE_ROOT} does not exist, please set correct UE_ROOT"
     exit 1
-fi;
+fi
 
 UE_PREREQUISITES="${UE_ROOT}/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v13_clang-7.0.1-centos7/x86_64-unknown-linux-gnu"
 ###############################################################################
@@ -48,7 +48,7 @@ done
 if [ $(uname) != 'Linux' ]; then
     echo "Can not work under $(uname) operating system, should be Linux! Exiting..."
     exit 1
-fi;
+fi
 
 # Clone or pull
 if [ ! -d "$GRPC_ROOT" ]; then
