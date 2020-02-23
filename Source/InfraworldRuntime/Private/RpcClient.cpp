@@ -27,6 +27,7 @@
 #include "grpcpp/impl/grpc_library.h"
 #include "GrpcIncludesEnd.h"
 
+#include "HAL/Event.h"
 #include "Misc/DefaultValueHelper.h"
 #include "HAL/RunnableThread.h"
 #include "Kismet/KismetStringLibrary.h"
@@ -45,11 +46,13 @@ bool URpcClient::Init(const FString& URI, UChannelCredentials* ChannelCredential
     //Channel
     Channel = grpc::CreateChannel(casts::Proto_Cast<std::string>(URI), grpc::InsecureChannelCredentials());
 
-    // Launch 'chaining' hierarchical init, which will init a superclass (a concrete implementation).
     PostInit();
 
-    UE_LOG(LogInfraworldRuntime, Log, TEXT("RpcClient at [%p], finished HierarchicalInit"), this);
+    //TaskManager
+    AsyncTaskManager = MakeUnique<FRpcAsyncTaskManager>();
+    AsyncTaskThread.Reset(FRunnableThread::Create(AsyncTaskManager.Get(), TEXT("RpcAsyncTaskThread"), 128 * 1024));
 
+    AsyncTaskManager->AddTask(MakeShared<FRpcAsyncCheckCompletionQueue>(this));
     return true;
 }
 
@@ -96,23 +99,117 @@ URpcClient* URpcClient::CreateRpcClientUri(TSubclassOf<URpcClient> Class, const 
 
 void URpcClient::Tick(float DeltaTime)
 {
-    void* Tag;
-    bool Ok;
-    UAsyncConduitBase* Conduit;
-
-    gpr_timespec TimeSpec;
-    TimeSpec.clock_type = GPR_TIMESPAN;
-    TimeSpec.tv_sec = 0;
-    TimeSpec.tv_nsec = 0;
-
-    while (CompletionQueue.AsyncNext(&Tag, &Ok, TimeSpec) == CompletionQueue.GOT_EVENT)
+    while (AsyncTaskManager && !AsyncTaskManager->OutItems.IsEmpty())
     {
-        Conduit = static_cast<UAsyncConduitBase*>(Tag);
-        Conduit->Process();
+        TSharedPtr<FRpcAsyncItem> Item;
+        AsyncTaskManager->OutItems.Dequeue(Item);
+        Item->Evaluate();
     }
 }
 
 TStatId URpcClient::GetStatId() const
 {
     return TStatId();
+}
+
+void FRpcAsyncTaskManager::AddTask(TSharedPtr<FRpcAsyncTask> NewTask)
+{
+    InTasks.Enqueue(NewTask);
+}
+
+bool FRpcAsyncTaskManager::Init()
+{
+    WorkEvent = FPlatformProcess::GetSynchEventFromPool();
+    FPlatformAtomics::InterlockedExchange((volatile int32*)&AsyncThreadId, FPlatformTLS::GetCurrentThreadId());
+    return WorkEvent != nullptr;
+}
+
+uint32 FRpcAsyncTaskManager::Run()
+{
+    do
+    {
+        // Wait for a trigger event to start work
+        WorkEvent->Wait(50);
+        if (!bShouldExit)
+        {
+            Tick();
+        }
+    } while (!bShouldExit);
+
+    return 0;
+}
+
+void FRpcAsyncTaskManager::Stop()
+{
+    bShouldExit = true;
+    WorkEvent->Trigger();
+}
+
+void FRpcAsyncTaskManager::Exit()
+{
+    FPlatformProcess::ReturnSynchEventToPool(WorkEvent);
+}
+
+void FRpcAsyncTaskManager::Tick()
+{
+    while (!InTasks.IsEmpty())
+    {
+        TSharedPtr<FRpcAsyncTask> Task;
+        InTasks.Dequeue(Task);
+        Task->Manager = this;
+        ParallelTasks.Add(Task);
+    }
+    for (int i = 0; i < ParallelTasks.Num(); i++)
+    {
+        if (ParallelTasks[i]->TickAndShouldFinish())
+        {
+            ParallelTasks.RemoveAt(i);
+            i--;
+        }
+    }
+}
+
+FRpcAsyncCheckCompletionQueue::FRpcAsyncCheckCompletionQueue(class URpcClient* InClient) :
+    Client(InClient)
+{
+}
+
+void FRpcAsyncCheckCompletionQueue::OnStart()
+{
+}
+
+bool FRpcAsyncCheckCompletionQueue::TickAndShouldFinish()
+{
+    void* Tag;
+    bool Ok;
+
+    gpr_timespec TimeSpec;
+    TimeSpec.clock_type = GPR_TIMESPAN;
+    TimeSpec.tv_sec = 0;
+    TimeSpec.tv_nsec = 0;
+
+    while (Client->CompletionQueue.AsyncNext(&Tag, &Ok, TimeSpec) == Client->CompletionQueue.GOT_EVENT)
+    {
+        UTagDelegateWrapper* TagWrapper = static_cast<UTagDelegateWrapper*>(Tag);
+        Manager->OutItems.Enqueue(MakeShared<FTagItem>(Ok, TagWrapper));
+    }
+    return false;
+}
+
+FTagItem::FTagItem(bool Ok, UTagDelegateWrapper* Delegate) :
+    Ok(Ok),
+    Delegate(Delegate)
+{
+}
+
+void FTagItem::Evaluate()
+{
+    if (Delegate->IsValidLowLevel())
+    {
+        Delegate->Delegate.Broadcast(Ok);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("Lost Delegate"))
+    }
 }

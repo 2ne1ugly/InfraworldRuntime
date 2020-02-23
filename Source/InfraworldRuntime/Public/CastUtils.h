@@ -183,13 +183,13 @@ namespace casts
     FORCEINLINE TArray<uint8> Proto_Cast(const std::string& String)
     {
         // Allocate a TArray<uint8>
-        TArray<uint8> OutArray;
-        
-        // Put String's content into the array. We can not (and do not need) to cast away const qualifier.
-        OutArray.Insert(reinterpret_cast<const uint8*>(String.c_str()), String.size(), 0);
+        return TArray<uint8>(reinterpret_cast<const uint8*>(String.c_str()), String.size());
+    }
 
-        // Finally, wrap all data into FByteArray
-        return OutArray;
+    template <>
+    FORCEINLINE std::string Proto_Cast(const TArray<uint8>& Array)
+    {
+        return std::string(reinterpret_cast<const char*>(Array.GetData()), Array.Num());
     }
 
     // ~~~~~ CAST FUNCTIONS (UNREAL STRING and PROTOBUF STRING) ~~~~~
@@ -204,16 +204,6 @@ namespace casts
     FORCEINLINE FString Proto_Cast(const std::string& String)
     {
         return FString(String.c_str());
-    }
-
-    template <>
-    FORCEINLINE FGrpcStatus Proto_Cast(const grpc::Status& InStatus)
-    {
-        FGrpcStatus OutStatus;
-        OutStatus.ErrorCode = Proto_EnumCast<EGrpcStatusCode>(InStatus.error_code());
-        OutStatus.ErrorMessage = Proto_Cast<FString>(InStatus.error_message());
-        OutStatus.ErrorDetails = Proto_Cast<FString>(InStatus.error_details());
-        return OutStatus;
     }
 
     // Since we have no support for unsigned types in Blueprints, we need to

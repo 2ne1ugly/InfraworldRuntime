@@ -33,7 +33,40 @@
 		#include "Windows/HideWindowsPlatformTypes.h"
 	#endif
 #elif PLATFORM_COMPILER_CLANG
+    #include "CoreMinimal.h"
+
 	#pragma clang diagnostic push
 	#pragma clang diagnostic ignored "-Wundef"
 	#pragma clang diagnostic ignored "-Wshadow"
+
+    #ifndef bswap_16
+    static inline uint16 bswap_16(uint16 x) {
+        return static_cast<uint16>(((x & 0xFF) << 8) | ((x & 0xFF00) >> 8));
+    }
+    #define bswap_16(x) bswap_16(x)
+    #endif
+
+    #ifndef bswap_32
+    static inline uint32 bswap_32(uint32 x) {
+        return (((x & 0xFF) << 24) |
+            ((x & 0xFF00) << 8) |
+            ((x & 0xFF0000) >> 8) |
+            ((x & 0xFF000000) >> 24));
+    }
+    #define bswap_32(x) bswap_32(x)
+    #endif
+
+    #ifndef bswap_64
+    static inline uint64 bswap_64(uint64 x) {
+        return (((x & 0xFFULL) << 56) |
+            ((x & 0xFF00ULL) << 40) |
+            ((x & 0xFF0000ULL) << 24) |
+            ((x & 0xFF000000ULL) << 8) |
+            ((x & 0xFF00000000ULL) >> 8) |
+            ((x & 0xFF0000000000ULL) >> 24) |
+            ((x & 0xFF000000000000ULL) >> 40) |
+            ((x & 0xFF00000000000000ULL) >> 56));
+    }
+    #define bswap_64(x) bswap_64(x)
+    #endif
 #endif

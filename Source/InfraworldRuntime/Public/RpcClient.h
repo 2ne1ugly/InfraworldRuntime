@@ -31,8 +31,110 @@
 #include "grpcpp/create_channel.h"
 #include "grpcpp/completion_queue.h"
 
+#include "HAL/Runnable.h"
+#include "Misc/SingleThreadRunnable.h"
+
 #include "GrpcIncludesEnd.h"
+#include "AsyncConduitBase.h"
 #include "RpcClient.generated.h"
+
+class INFRAWORLDRUNTIME_API FRpcAsyncItem
+{
+public:
+    virtual void Evaluate() = 0;
+};
+
+class INFRAWORLDRUNTIME_API FRpcAsyncTask
+{
+public:
+    class FRpcAsyncTaskManager* Manager;
+
+    virtual void OnStart() = 0;
+
+    virtual bool TickAndShouldFinish() = 0;
+};
+
+class INFRAWORLDRUNTIME_API FRpcAsyncTaskManager : public FRunnable, private FSingleThreadRunnable
+{
+public:
+    TQueue<TSharedPtr<FRpcAsyncTask>> InTasks;
+    
+    TArray<TSharedPtr<FRpcAsyncTask>> ParallelTasks;
+
+    TQueue<TSharedPtr<FRpcAsyncItem>> OutItems;
+
+    FEvent* WorkEvent = nullptr;
+
+    bool bShouldExit = false;
+        
+    volatile uint32 AsyncThreadId;
+
+    void AddTask(TSharedPtr<FRpcAsyncTask> NewTask);
+
+    virtual bool Init() override;
+
+    virtual uint32 Run() override;
+
+    virtual void Stop() override;
+
+    virtual void Exit() override;
+
+    virtual class FSingleThreadRunnable* GetSingleThreadInterface() { return this; }
+
+    virtual void Tick();
+};
+
+class INFRAWORLDRUNTIME_API FRpcAsyncCheckCompletionQueue : public FRpcAsyncTask
+{
+public:
+    FRpcAsyncCheckCompletionQueue() = delete;
+    FRpcAsyncCheckCompletionQueue(class URpcClient* InClient);
+    
+    class URpcClient* Client;
+
+    virtual void OnStart() override;
+
+    virtual bool TickAndShouldFinish() override;
+};
+
+class INFRAWORLDRUNTIME_API FTagItem : public FRpcAsyncItem
+{
+public:
+    FTagItem(bool Ok, UTagDelegateWrapper* Delegate);
+
+    bool Ok;
+
+    UTagDelegateWrapper* Delegate;
+
+    virtual void Evaluate() override;
+};
+
+template<typename ConduitType, typename MessageType>
+class INFRAWORLDRUNTIME_API FStreamSendMessage : public FRpcAsyncTask
+{
+public:
+    FStreamSendMessage(ConduitType* InStreamConduit) : StreamConduit(InStreamConduit) {}
+    ConduitType* StreamConduit;
+
+    virtual void OnStart() override {}
+
+    virtual bool TickAndShouldFinish() override
+    {
+        if (!StreamConduit->bActive)
+        {
+            return true;
+        }
+        if (!StreamConduit->bSendingMessage && !StreamConduit->RequestQueue.IsEmpty())
+        {
+            StreamConduit->bSendingMessage = true;
+            TPair<MessageType, UTagDelegateWrapper*> Message;
+            StreamConduit->RequestQueue.Dequeue(Message);
+            StreamConduit->AsyncReaderWriter->Write(Message.Key, Message.Value);
+        }
+        return false;
+    }
+
+};
 
 /**
  * An RPC client used to interact with GRPC services from Blueprints and UE-compatible C++ code.
@@ -94,7 +196,9 @@ public:
 
     std::shared_ptr<grpc::Channel> Channel;
     grpc::CompletionQueue CompletionQueue;
-    grpc::GrpcLibraryCodegen init;
+
+    TUniquePtr<FRpcAsyncTaskManager> AsyncTaskManager;
+    TUniquePtr<FRunnableThread> AsyncTaskThread;
 };
 
 template <typename T>

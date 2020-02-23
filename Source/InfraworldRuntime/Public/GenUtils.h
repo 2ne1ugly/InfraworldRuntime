@@ -16,6 +16,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GrpcIncludesBegin.h"
+#include "grpcpp/client_context.h"
+#include "GrpcIncludesEnd.h"
 #include "GenUtils.generated.h"
 
 // XX - major version
@@ -172,33 +175,4 @@ enum class EGrpcStatusCode : uint8
      * Unrecoverable data loss or corruption.
      */
     DataLoss = 15
-};
-
-/**
- * Did it work? If it didn't, why?
- *
- * @see https://grpc.io/grpc/cpp/classgrpc_1_1_status.html#details
- */
-USTRUCT(BlueprintType)
-struct INFRAWORLDRUNTIME_API FGrpcStatus
-{
-    GENERATED_USTRUCT_BODY()
-
-    /**
-     * Return the instance's error code.
-     */
-    UPROPERTY(BlueprintReadOnly, Category=Status)
-    EGrpcStatusCode ErrorCode;
-
-    /**
-     * Return the instance's error message.
-     */
-    UPROPERTY(BlueprintReadOnly, Category=Status)
-    FString ErrorMessage;
-
-    /**
-     * The (binary) error details. Usually it contains a serialized google.rpc.Status proto.
-     */
-    UPROPERTY(BlueprintReadOnly, Category=Status)
-    FString ErrorDetails;
 };
