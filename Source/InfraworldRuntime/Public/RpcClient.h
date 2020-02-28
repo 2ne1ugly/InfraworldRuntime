@@ -116,24 +116,56 @@ public:
     FStreamSendMessage(ConduitType* InStreamConduit) : StreamConduit(InStreamConduit) {}
     ConduitType* StreamConduit;
 
-    virtual void OnStart() override {}
+    bool bActive = false;
+
+    virtual void OnStart() override
+    {
+        bActive = true;
+    }
 
     virtual bool TickAndShouldFinish() override
     {
-        if (!StreamConduit->bActive)
+        if (!bActive || !StreamConduit->bActive)
         {
             return true;
         }
         if (!StreamConduit->bSendingMessage && !StreamConduit->RequestQueue.IsEmpty())
         {
-            StreamConduit->bSendingMessage = true;
             TPair<MessageType, UTagDelegateWrapper*> Message;
             StreamConduit->RequestQueue.Dequeue(Message);
-            StreamConduit->AsyncReaderWriter->Write(Message.Key, Message.Value);
+            StreamConduit->SendMessage(Message.Key, Message.Value);
         }
         return false;
     }
+};
 
+template<typename ConduitType, typename MessageType>
+class INFRAWORLDRUNTIME_API FStreamReceiveMessage : public FRpcAsyncTask
+{
+public:
+    FStreamReceiveMessage(ConduitType* InStreamConduit) : StreamConduit(InStreamConduit) {}
+    ConduitType* StreamConduit;
+
+    bool bActive = false;
+
+    virtual void OnStart() override
+    {
+        bActive = true;
+    }
+
+    virtual bool TickAndShouldFinish() override
+    {
+
+        if (!bActive || !StreamConduit->bActive)
+        {
+            return true;
+        }
+        if (!StreamConduit->bReceivingMessage)
+        {
+            StreamConduit->ReceiveMessage(&StreamConduit->TaskResponse, StreamConduit->TaskReceiveDelegate);
+        }
+        return false;
+    }
 };
 
 /**

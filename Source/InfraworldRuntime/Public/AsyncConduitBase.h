@@ -22,6 +22,7 @@ class INFRAWORLDRUNTIME_API UTagDelegateWrapper : public UObject
     GENERATED_BODY()
 
 public:
+    bool bBindDefault = true;
     FOnTagReceivedDelegate Delegate;
 };
 
@@ -53,6 +54,7 @@ class INFRAWORLDRUNTIME_API UBidirectionalStreamConduitBase : public UObject
     GENERATED_BODY()
 
 public:
+    UBidirectionalStreamConduitBase();
 
     grpc::Status Status;
 
@@ -61,18 +63,19 @@ public:
     bool bActive;
 
     bool bSendingMessage;
+    bool bReceivingMessage;
 
     UPROPERTY()
     TArray<UTagDelegateWrapper*> KnownTags;
 
+    UPROPERTY()
+    UTagDelegateWrapper* TaskReceiveDelegate;
 
-    //virtual void SendMessage();
+    
+    
+    virtual void StartSendTaskHandler();
 
-    //virtual void ReceiveMessage();
-
-    //virtual void OnMessageSent();
-
-    //virtual void OnMessageReceived();
+    virtual void StartReceiveTaskHandler();
 
     virtual void StartStream(UTagDelegateWrapper* DelegateWrapper);
 

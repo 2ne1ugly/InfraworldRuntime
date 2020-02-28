@@ -157,6 +157,7 @@ void FRpcAsyncTaskManager::Tick()
         TSharedPtr<FRpcAsyncTask> Task;
         InTasks.Dequeue(Task);
         Task->Manager = this;
+        Task->OnStart();
         ParallelTasks.Add(Task);
     }
     for (int i = 0; i < ParallelTasks.Num(); i++)
